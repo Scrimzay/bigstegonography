@@ -1,0 +1,4 @@
+github.com/DimitarPetrov/stegify v0.0.0-20230411060737-5d278781a3c1 h1:rNwKbLSjAd4w7TqgNf2RJ298yNVy8UomsZw4yeloHjQ=
+github.com/DimitarPetrov/stegify v0.0.0-20230411060737-5d278781a3c1/go.mod h1:x0wKH7k9G68nVhLLQyNCO/fyPnK8Smd+KwO/kyVmTt0=
+github.com/auyer/steganography v1.0.2 h1:G5iZbX8QUvw+kCLyK+59hY8t/oSSpSS5yStIcPCGIgU=
+github.com/auyer/steganography v1.0.2/go.mod h1:Q2qN+f1ixaXnKTCT4xkSDCZ/5NiOpUeTgOCLwQdJD+A=
