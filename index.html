@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Steganography Encoder/Decoder</title>
+    <style>
+        /* Basic styling for the form */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 50px;
+        }
+        .hidden {
+            display: none;
+        }
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+        }
+        form > div {
+            margin-bottom: 15px;
+        }
+        label {
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .radio-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            align-items: center;
+        }
+        .radio-option {
+            display: flex;
+            align-items: center;
+        }
+        .radio-option input[type="radio"] {
+            margin-right: 5px;
+        }
+        input[type="file"] {
+            width: 100%;
+            margin-top: 5px;
+        }
+        input[type="submit"] {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            background-color: #2E8B57;
+            color: white;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        input[type="submit"]:hover {
+            background-color: #1E6B47;
+        }
+    </style>
+    <script>
+        function updateForm() {
+            var stegoType = document.querySelector('input[name="stegoType"]:checked').value;
+            var operation = document.querySelector('input[name="operation"]:checked').value;
+
+            // Get fields
+            var textFields = document.getElementById('textFields');
+            var imageFields = document.getElementById('imageFields');
+
+            var textFileDiv = document.getElementById('textFileDiv');
+            var coverImage1Div = document.getElementById('coverImage1Div');
+            var carrierImageField = document.getElementById('carrierImageField');
+
+            var hiddenImageDiv = document.getElementById('hiddenImageDiv');
+            var coverImagesDiv = document.getElementById('coverImagesDiv');
+            var carrierImagesField = document.getElementById('carrierImagesField');
+
+            // Reset required attributes
+            var inputs = document.querySelectorAll('input');
+            inputs.forEach(function(input) {
+                input.removeAttribute('required');
+            });
+
+            // Reset file input fields
+            var fileInputs = document.querySelectorAll('input[type="file"]');
+            fileInputs.forEach(function(input) {
+                input.value = ''; // Reset the file input
+            });
+
+            if (operation === 'encode') {
+                if (stegoType === 'text') {
+                    textFields.classList.remove('hidden');
+                    imageFields.classList.add('hidden');
+
+                    textFileDiv.classList.remove('hidden');
+                    coverImage1Div.classList.remove('hidden');
+                    carrierImageField.classList.add('hidden');
+
+                    document.getElementById('textFile').setAttribute('required', 'required');
+                    document.getElementById('coverImage1').setAttribute('required', 'required');
+
+                } else if (stegoType === 'image') {
+                    textFields.classList.add('hidden');
+                    imageFields.classList.remove('hidden');
+
+                    hiddenImageDiv.classList.remove('hidden');
+                    coverImagesDiv.classList.remove('hidden');
+                    carrierImagesField.classList.add('hidden');
+
+                    document.getElementById('hiddenImage').setAttribute('required', 'required');
+                    document.getElementById('coverImages').setAttribute('required', 'required');
+                }
+            } else if (operation === 'decode') {
+                if (stegoType === 'text') {
+                    textFields.classList.remove('hidden');
+                    imageFields.classList.add('hidden');
+
+                    textFileDiv.classList.add('hidden');
+                    coverImage1Div.classList.add('hidden');
+                    carrierImageField.classList.remove('hidden');
+
+                    document.getElementById('carrierImage').setAttribute('required', 'required');
+
+                } else if (stegoType === 'image') {
+                    textFields.classList.add('hidden');
+                    imageFields.classList.remove('hidden');
+
+                    hiddenImageDiv.classList.add('hidden');
+                    coverImagesDiv.classList.add('hidden');
+                    carrierImagesField.classList.remove('hidden');
+
+                    document.getElementById('carrierImages').setAttribute('required', 'required');
+                }
+            }
+        }
+
+        window.onload = function() {
+            updateForm();
+        };
+
+        document.getElementById('stegoForm').addEventListener('submit', function(event) {
+            var operation = document.querySelector('input[name="operation"]:checked').value;
+            if (operation === 'decode') {
+                this.action = '/decode';
+            } else {
+                this.action = '/encode';
+            }
+        });
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>Steganography Encoder/Decoder</h1>
+        <form id="stegoForm" action="/encode" method="post" enctype="multipart/form-data">
+            <!-- Operation Selection -->
+            <div>
+                <label>Select Operation:</label>
+                <div class="radio-group">
+                    <div class="radio-option">
+                        <input type="radio" id="encode" name="operation" value="encode" checked onclick="updateForm()">
+                        <label for="encode">Encode</label>
+                    </div>
+                    <div class="radio-option">
+                        <input type="radio" id="decode" name="operation" value="decode" onclick="updateForm()">
+                        <label for="decode">Decode</label>
+                    </div>
+                </div>
+            </div>
+            <!-- Steganography Type Selection -->
+            <div>
+                <label>Select Steganography Type:</label>
+                <div class="radio-group">
+                    <div class="radio-option">
+                        <input type="radio" id="textInImage" name="stegoType" value="text" checked onclick="updateForm()">
+                        <label for="textInImage">Text inside Image</label>
+                    </div>
+                    <div class="radio-option">
+                        <input type="radio" id="imageInImage" name="stegoType" value="image" onclick="updateForm()">
+                        <label for="imageInImage">Image inside Image</label>
+                    </div>
+                </div>
+            </div>
+            <!-- Text Fields -->
+            <div id="textFields">
+                <div id="textFileDiv">
+                    <label for="textFile">Select Text File to Hide:</label>
+                    <input type="file" id="textFile" name="textFile" accept=".txt">
+                </div>
+                <div id="coverImage1Div">
+                    <label for="coverImage1">Select Cover Image:</label>
+                    <input type="file" id="coverImage1" name="coverImage1" accept="image/*">
+                </div>
+                <div id="carrierImageField" class="hidden">
+                    <label for="carrierImage">Select Carrier Image:</label>
+                    <input type="file" id="carrierImage" name="carrierImage" accept="image/*">
+                </div>
+            </div>
+            <!-- Image Fields -->
+            <div id="imageFields" class="hidden">
+                <div id="hiddenImageDiv">
+                    <label for="hiddenImage">Select Image to Hide:</label>
+                    <input type="file" id="hiddenImage" name="hiddenImage" accept="image/*">
+                </div>
+                <div id="coverImagesDiv">
+                    <label for="coverImages">Select Cover Images (You can select multiple images):</label>
+                    <input type="file" id="coverImages" name="coverImages" accept="image/*" multiple>
+                </div>
+                <div id="carrierImagesField" class="hidden">
+                    <label for="carrierImages">Select Carrier Images:</label>
+                    <input type="file" id="carrierImages" name="carrierImages" accept="image/*" multiple>
+                </div>
+            </div>
+            <!-- Submit Button -->
+            <div>
+                <input type="submit" value="Submit">
+            </div>
+        </form>
+    </div>
+</body>
+</html>

@@ -3,238 +3,278 @@ package main
 import (
 	"bufio"
     "bytes"
-    "flag"
     "fmt"
     "stenoprac/steg"
     "image"
     _ "image/png"
     "io/ioutil"
-    //"log"
     "os"
-    "strings"
+    "net/http"
+    "path/filepath"
+    "io"
+    "archive/zip"
 
 	"github.com/auyer/steganography"
+    "github.com/gin-gonic/gin"
 )
 
 
-const encode = "encode"
-const decode = "decode"
-
-type sliceFlag []string
-
-func (sf *sliceFlag) String() string {
-    return strings.Join(*sf, " ")
-}
-
-func (sf *sliceFlag) Set(value string) error {
-    *sf = append(*sf, value)
-    return nil
-}
-
-var carrierFilesSlice sliceFlag
-var carrierFiles = flag.String("carriers", "", "Carrier files in which the data is encoded (separated by space)")
-var dataFile = flag.String("data", "", "Data file which is being encoded in the carrier")
-var dataType = flag.String("data-type", "image", "Type of data being encoded (image/text)")
-var resultFilesSlice sliceFlag
-var resultFiles = flag.String("results", "", "Names of the result files (separated by space)")
-
-func init() {
-    flag.StringVar(carrierFiles, "c", "", "Carrier files in which the data is encoded (separated by space, shorthand for --carriers)")
-    flag.Var(&carrierFilesSlice, "carrier", "Carrier file in which the data is encoded (can be used multiple times for multiple carriers)")
-    flag.StringVar(dataFile, "d", "", "Data file which is being encoded in the carrier (shorthand for --data)")
-    flag.Var(&resultFilesSlice, "result", "Name of the result file (can be used multiple times for multiple result file names)")
-    flag.StringVar(resultFiles, "r", "", "Names of the result files (separated by space, shorthand for --results)")
-    flag.StringVar(dataType, "t", "image", "Type of data being encoded (image/text), shorthand for --data-type")
-
-    flag.Usage = func() {
-        fmt.Fprintln(os.Stdout, "Usage: stegify [encode/decode] [flags...]")
-        flag.PrintDefaults()
-        fmt.Fprintln(os.Stdout, `NOTE: When multiple carriers are provided with different kinds of flags, the names provided through "carrier" flag are taken first and with "carriers"/"c" flags second. Same goes for the "result"/"results" flags.`)
-        fmt.Fprintln(os.Stdout, `NOTE: When no results are provided, default values will be used for the names of the results.`)
-    }
-}
-
 func main() {
-    operation := parseOperation()
-    flag.Parse()
-    carriers := parseCarriers()
-    results := parseResults()
+    r := gin.Default()
+    r.LoadHTMLFiles("index.html") // Load your HTML file
 
-    switch operation {
-    case encode:
-        if *dataType == "image" {
-            // Encoding an image into images
-            if len(results) == 0 { // if no results provided use defaults
-                for i := range carriers {
-                    results = append(results, fmt.Sprintf("result%d.png", i))
-                }
-            }
-            if len(results) != len(carriers) {
-                fmt.Fprintln(os.Stderr, "Carrier and result files count must be equal when encoding.")
-                os.Exit(1)
-            }
-            if dataFile == nil || *dataFile == "" {
-                fmt.Fprintln(os.Stderr, "Data file must be specified. Use --help for more information.")
-                os.Exit(1)
-            }
-            err := steg.MultiCarrierEncodeByFileNames(carriers, *dataFile, results)
-            if err != nil {
-                fmt.Fprintln(os.Stderr, err)
-                os.Exit(1)
-            }
-        } else if *dataType == "text" {
-            // Encoding text into an image
-            if len(carriers) != 1 {
-                fmt.Fprintln(os.Stderr, "Only one carrier image expected when encoding text.")
-                os.Exit(1)
-            }
-            if len(results) == 0 {
-                results = append(results, "encoded.png")
-            } else if len(results) != 1 {
-                fmt.Fprintln(os.Stderr, "Only one result file expected when encoding text.")
-                os.Exit(1)
-            }
-            if dataFile == nil || *dataFile == "" {
-                fmt.Fprintln(os.Stderr, "Data file must be specified for encoding text.")
-                os.Exit(1)
-            }
-            // Read the message from dataFile
-            message, err := ioutil.ReadFile(*dataFile)
-            if err != nil {
-                fmt.Fprintln(os.Stderr, "Error reading data file:", err)
-                os.Exit(1)
-            }
-            // Open the carrier image
-            img, err := OpenImageFromPath(carriers[0])
-            if err != nil {
-                fmt.Fprintln(os.Stderr, "Error opening carrier image:", err)
-                os.Exit(1)
-            }
-            // Encode the message into the image
-            encodedImg := new(bytes.Buffer)
-            err = steganography.Encode(encodedImg, img, message)
-            if err != nil {
-                fmt.Fprintln(os.Stderr, "Error encoding message into image:", err)
-                os.Exit(1)
-            }
-            // Write the encoded image to the result file
-            err = ioutil.WriteFile(results[0], encodedImg.Bytes(), 0644)
-            if err != nil {
-                fmt.Fprintln(os.Stderr, "Error writing encoded image to file:", err)
-                os.Exit(1)
-            }
+    // Ensure uploads directory exists
+    if _, err := os.Stat("uploads"); os.IsNotExist(err) {
+        os.Mkdir("uploads", os.ModePerm)
+    }
+
+    // Serve the HTML form
+    r.GET("/", func(c *gin.Context) {
+        c.HTML(http.StatusOK, "index.html", nil)
+    })
+
+    // Handle encoding requests
+    r.POST("/encode", func(c *gin.Context) {
+        fmt.Println("Encode handler invoked")
+        stegoType := c.PostForm("stegoType")
+        operation := "encode"
+
+        if stegoType == "image" {
+            // Handle image inside image encoding
+            handleImageInImage(c, operation)
+        } else if stegoType == "text" {
+            // Handle text inside image encoding
+            handleTextInImage(c, operation)
         } else {
-            fmt.Fprintln(os.Stderr, "Unsupported data-type:", *dataType)
-            os.Exit(1)
+            c.String(http.StatusBadRequest, "Invalid steganography type")
         }
-    case decode:
-        if *dataType == "image" {
-            // Decoding an image from images
-            if len(results) == 0 { // if no result provided use default
-                results = append(results, "result.png")
-            }
-            if len(results) != 1 {
-                fmt.Fprintln(os.Stderr, "Only one result file expected.")
-                os.Exit(1)
-            }
-            err := steg.MultiCarrierDecodeByFileNames(carriers, results[0])
-            if err != nil {
-                fmt.Fprintln(os.Stderr, err)
-                os.Exit(1)
-            }
-        } else if *dataType == "text" {
-            // Decoding text from an image
-            if len(carriers) != 1 {
-                fmt.Fprintln(os.Stderr, "Only one carrier image expected when decoding text.")
-                os.Exit(1)
-            }
-            // Open the carrier image
-            img, err := OpenImageFromPath(carriers[0])
-            if err != nil {
-                fmt.Fprintln(os.Stderr, "Error opening carrier image:", err)
-                os.Exit(1)
-            }
-            // Get the message size
-            sizeOfMessage := steganography.GetMessageSizeFromImage(img)
-            // Decode the message
-            msg := steganography.Decode(sizeOfMessage, img)
-            // If results[0] is specified, write message to file, else print to stdout
-            if len(results) == 0 || results[0] == "" {
-                fmt.Print(string(msg))
-            } else {
-                err := ioutil.WriteFile(results[0], msg, 0644)
-                if err != nil {
-                    fmt.Fprintln(os.Stderr, "Error writing message to file:", err)
-                    os.Exit(1)
-                }
-            }
+    })
+
+    // Handle decoding requests
+    r.POST("/decode", func(c *gin.Context) {
+        fmt.Println("Decode handler invoked")
+        stegoType := c.PostForm("stegoType")
+        operation := "decode"
+
+        if stegoType == "image" {
+            // Handle image inside image decoding
+            handleImageInImage(c, operation)
+        } else if stegoType == "text" {
+            // Handle text inside image decoding
+            handleTextInImage(c, operation)
         } else {
-            fmt.Fprintln(os.Stderr, "Unsupported data-type:", *dataType)
-            os.Exit(1)
+            c.String(http.StatusBadRequest, "Invalid steganography type")
         }
-    default:
-        fmt.Fprintln(os.Stderr, "Unsupported operation:", operation)
-        os.Exit(1)
-    }
+    })
+
+    fmt.Println("Server started at http://localhost:8080")
+    r.Run(":8080")
 }
 
-func parseOperation() string {
-    if len(os.Args) < 2 {
-        fmt.Fprintln(os.Stderr, "Operation must be specified [encode/decode]. Use --help for more information.")
-        os.Exit(1)
-    }
-    operation := os.Args[1]
-    if operation != encode && operation != decode {
-        helpFlags := map[string]bool{
-            "--help": true,
-            "-help":  true,
-            "--h":    true,
-            "-h":     true,
+// Handler for image inside image encoding/decoding
+func handleImageInImage(c *gin.Context, operation string) {
+    if operation == "encode" {
+        // Get hidden image
+        hiddenImageFile, err := c.FormFile("hiddenImage")
+        if err != nil {
+            c.String(http.StatusBadRequest, "Error retrieving the hidden image: %v", err)
+            return
         }
-        if helpFlags[operation] {
-            flag.Parse()
-            os.Exit(0)
+        hiddenImagePath := filepath.Join("uploads", hiddenImageFile.Filename)
+        err = c.SaveUploadedFile(hiddenImageFile, hiddenImagePath)
+        if err != nil {
+            c.String(http.StatusInternalServerError, "Error saving hidden image: %v", err)
+            return
         }
-        fmt.Fprintf(os.Stderr, "Unsupported operation: %s. Only [encode/decode] operations are supported.\nUse --help for more information.", operation)
-        os.Exit(1)
-    }
 
-    os.Args = append(os.Args[:1], os.Args[2:]...) // Remove the operation argument for flag parsing
-    return operation
+        // Get cover images
+        coverImages := c.Request.MultipartForm.File["coverImages"]
+        if len(coverImages) == 0 {
+            c.String(http.StatusBadRequest, "At least one cover image is required")
+            return
+        }
+
+        carriers := make([]string, 0)
+        for _, fileHeader := range coverImages {
+            coverImagePath := filepath.Join("uploads", fileHeader.Filename)
+            err = c.SaveUploadedFile(fileHeader, coverImagePath)
+            if err != nil {
+                c.String(http.StatusInternalServerError, "Error saving cover image: %v", err)
+                return
+            }
+            carriers = append(carriers, coverImagePath)
+        }
+
+        // Generate result file names
+        results := make([]string, len(carriers))
+        for i := range carriers {
+            results[i] = fmt.Sprintf("result%d.png", i)
+        }
+
+        // Perform encoding
+        err = steg.MultiCarrierEncodeByFileNames(carriers, hiddenImagePath, results)
+        if err != nil {
+            c.String(http.StatusInternalServerError, "Error encoding image: %v", err)
+            return
+        }
+
+        // Send the encoded images as a ZIP file
+        zipPath := "encoded_images.zip"
+        err = createZip(results, zipPath)
+        if err != nil {
+            c.String(http.StatusInternalServerError, "Error creating ZIP file: %v", err)
+            return
+        }
+
+        c.Header("Content-Disposition", "attachment; filename=encoded_images.zip")
+        c.Header("Content-Type", "application/zip")
+        c.File(zipPath)
+
+        // Clean up uploaded and generated files
+        cleanupFiles(append(carriers, hiddenImagePath), append(results, zipPath))
+
+    } else if operation == "decode" {
+        // Get carrier images
+        carrierImages := c.Request.MultipartForm.File["carrierImages"]
+        if len(carrierImages) == 0 {
+            c.String(http.StatusBadRequest, "At least one carrier image is required")
+            return
+        }
+
+        carriers := make([]string, 0)
+        for _, fileHeader := range carrierImages {
+            carrierImagePath := filepath.Join("uploads", fileHeader.Filename)
+            err := c.SaveUploadedFile(fileHeader, carrierImagePath)
+            if err != nil {
+                c.String(http.StatusInternalServerError, "Error saving carrier image: %v", err)
+                return
+            }
+            carriers = append(carriers, carrierImagePath)
+        }
+
+        // Result file name
+        resultFile := "decoded_image.png"
+
+        // Perform decoding
+        err := steg.MultiCarrierDecodeByFileNames(carriers, resultFile)
+        if err != nil {
+            c.String(http.StatusInternalServerError, "Error decoding image: %v", err)
+            return
+        }
+
+        c.FileAttachment(resultFile, resultFile)
+
+        // Clean up uploaded and generated files
+        cleanupFiles(carriers, []string{resultFile})
+    }
 }
 
-func parseCarriers() []string {
-    carriers := make([]string, 0)
-    if len(carrierFilesSlice) != 0 {
-        carriers = append(carriers, carrierFilesSlice...)
-    }
+// Handler for text inside image encoding/decoding
+func handleTextInImage(c *gin.Context, operation string) {
+    if operation == "encode" {
+        // Get text file
+        textFileHeader, err := c.FormFile("textFile")
+        if err != nil {
+            c.String(http.StatusBadRequest, "Error retrieving the text file: %v", err)
+            return
+        }
+        textFilePath := filepath.Join("uploads", textFileHeader.Filename)
+        err = c.SaveUploadedFile(textFileHeader, textFilePath)
+        if err != nil {
+            c.String(http.StatusInternalServerError, "Error saving text file: %v", err)
+            return
+        }
 
-    if len(*carrierFiles) != 0 {
-        carriers = append(carriers, strings.Split(*carrierFiles, " ")...)
-    }
+        // Get cover image
+        coverImageHeader, err := c.FormFile("coverImage1")
+        if err != nil {
+            c.String(http.StatusBadRequest, "Error retrieving the cover image: %v", err)
+            return
+        }
+        coverImagePath := filepath.Join("uploads", coverImageHeader.Filename)
+        err = c.SaveUploadedFile(coverImageHeader, coverImagePath)
+        if err != nil {
+            c.String(http.StatusInternalServerError, "Error saving cover image: %v", err)
+            return
+        }
 
-    if len(carriers) == 0 {
-        fmt.Fprintln(os.Stderr, "Carrier file must be specified. Use --help for more information.")
-        os.Exit(1)
-    }
+        // Read the message from text file
+        message, err := ioutil.ReadFile(textFilePath)
+        if err != nil {
+            c.String(http.StatusInternalServerError, "Error reading text file: %v", err)
+            return
+        }
 
-    return carriers
+        // Open the carrier image
+        img, err := OpenImageFromPath(coverImagePath)
+        if err != nil {
+            c.String(http.StatusInternalServerError, "Error opening carrier image: %v", err)
+            return
+        }
+
+        // Encode the message into the image
+        encodedImg := new(bytes.Buffer)
+        err = steganography.Encode(encodedImg, img, message)
+        if err != nil {
+            c.String(http.StatusInternalServerError, "Error encoding message into image: %v", err)
+            return
+        }
+
+        // Write the encoded image to a file
+        resultFile := "encoded.png"
+        err = ioutil.WriteFile(resultFile, encodedImg.Bytes(), 0644)
+        if err != nil {
+            c.String(http.StatusInternalServerError, "Error writing encoded image to file: %v", err)
+            return
+        }
+
+        c.FileAttachment(resultFile, resultFile)
+
+        // Clean up uploaded and generated files
+        cleanupFiles([]string{textFilePath, coverImagePath}, []string{resultFile})
+
+    } else if operation == "decode" {
+        // Get carrier image
+        carrierImageHeader, err := c.FormFile("carrierImage")
+        if err != nil {
+            c.String(http.StatusBadRequest, "Error retrieving the carrier image: %v", err)
+            return
+        }
+        carrierImagePath := filepath.Join("uploads", carrierImageHeader.Filename)
+        err = c.SaveUploadedFile(carrierImageHeader, carrierImagePath)
+        if err != nil {
+            c.String(http.StatusInternalServerError, "Error saving carrier image: %v", err)
+            return
+        }
+
+        // Open the carrier image
+        img, err := OpenImageFromPath(carrierImagePath)
+        if err != nil {
+            c.String(http.StatusInternalServerError, "Error opening carrier image: %v", err)
+            return
+        }
+
+        // Get the message size
+        sizeOfMessage := steganography.GetMessageSizeFromImage(img)
+        // Decode the message
+        msg := steganography.Decode(sizeOfMessage, img)
+
+        // Send the message as a text file
+        resultFile := "message.txt"
+        err = ioutil.WriteFile(resultFile, msg, 0644)
+        if err != nil {
+            c.String(http.StatusInternalServerError, "Error writing message to file: %v", err)
+            return
+        }
+
+        c.FileAttachment(resultFile, resultFile)
+
+        // Clean up uploaded and generated files
+        cleanupFiles([]string{carrierImagePath}, []string{resultFile})
+    }
 }
 
-func parseResults() []string {
-    results := make([]string, 0)
-    if len(resultFilesSlice) != 0 {
-        results = append(results, resultFilesSlice...)
-    }
-
-    if len(*resultFiles) != 0 {
-        results = append(results, strings.Split(*resultFiles, " ")...)
-    }
-
-    return results
-}
-
-//returns an image.Image from a file path
+// Utility function to open an image from a file path
 func OpenImageFromPath(filename string) (image.Image, error) {
     inFile, err := os.Open(filename)
     if err != nil {
@@ -247,4 +287,80 @@ func OpenImageFromPath(filename string) (image.Image, error) {
         return nil, err
     }
     return img, nil
+}
+
+// createZip creates a ZIP file at zipPath containing the files listed in the files slice.
+func createZip(files []string, zipPath string) error {
+    // Create the ZIP file
+    zipFile, err := os.Create(zipPath)
+    if err != nil {
+        return err
+    }
+    defer zipFile.Close()
+
+    // Create a new zip archive.
+    zipWriter := zip.NewWriter(zipFile)
+    defer zipWriter.Close()
+
+    // Add files to the ZIP archive
+    for _, file := range files {
+        err := addFileToZip(zipWriter, file)
+        if err != nil {
+            return err
+        }
+    }
+
+    return nil
+}
+
+// addFileToZip adds an individual file to the ZIP archive.
+func addFileToZip(zipWriter *zip.Writer, filename string) error {
+    // Open the file to be added to the ZIP
+    fileToZip, err := os.Open(filename)
+    if err != nil {
+        return err
+    }
+    defer fileToZip.Close()
+
+    // Get file information to set the correct header in the ZIP file
+    info, err := fileToZip.Stat()
+    if err != nil {
+        return err
+    }
+
+    // Create a zip header from the file info
+    header, err := zip.FileInfoHeader(info)
+    if err != nil {
+        return err
+    }
+
+    // Use the base name of the file (without the full path)
+    header.Name = filepath.Base(filename)
+
+    // Set the compression method
+    header.Method = zip.Deflate
+
+    // Create a writer for the file in the ZIP archive
+    writer, err := zipWriter.CreateHeader(header)
+    if err != nil {
+        return err
+    }
+
+    // Copy the file content into the ZIP archive
+    _, err = io.Copy(writer, fileToZip)
+    if err != nil {
+        return err
+    }
+
+    return nil
+}
+
+// Utility function to clean up files
+func cleanupFiles(uploadedFiles []string, generatedFiles []string) {
+    for _, file := range uploadedFiles {
+        os.Remove(file)
+    }
+    for _, file := range generatedFiles {
+        os.Remove(file)
+    }
 }
